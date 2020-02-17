@@ -17,6 +17,7 @@ import os
 import sys
 import ast
 import time
+import json
 
 import gflags
 import yaml
@@ -32,24 +33,46 @@ gflags.DEFINE_string("input_dir", default="", help="Directory of Input Images")
 gflags.DEFINE_boolean("use_pr", default=True, help="Use optimized model")
 gflags.DEFINE_string("trt_mode", default="", help="Use optimized model")
 gflags.DEFINE_string("ext", default=".jpeg|.jpg", help="Input Image File Extensions")
-gflags.FLAGS = gflags.FLAGS
+gflags.DEFINE_float('threshold', 0.0, 'threshold of score')
+gflags.DEFINE_string('c2l_path', 'ghk', 'class to label path')
+Flags = gflags.FLAGS
 
 
 # Generate ColorMap for visualization
-def generate_colormap(num_classes):
-    color_map = num_classes * [0, 0, 0]
-    for i in range(0, num_classes):
-        j = 0
-        lab = i
-        while lab:
-            color_map[i * 3] |= (((lab >> 0) & 1) << (7 - j))
-            color_map[i * 3 + 1] |= (((lab >> 1) & 1) << (7 - j))
-            color_map[i * 3 + 2] |= (((lab >> 2) & 1) << (7 - j))
-            j += 1
-            lab >>= 3
-    color_map = [color_map[i:i + 3] for i in range(0, len(color_map), 3)]
-    return color_map
-
+def colormap(rgb=False):
+    """
+    Get colormap
+    """
+    color_list = np.array([
+        0.000, 0.447, 0.741, 0.850, 0.325, 0.098, 0.929, 0.694, 0.125, 0.494,
+        0.184, 0.556, 0.466, 0.674, 0.188, 0.301, 0.745, 0.933, 0.635, 0.078,
+        0.184, 0.300, 0.300, 0.300, 0.600, 0.600, 0.600, 1.000, 0.000, 0.000,
+        1.000, 0.500, 0.000, 0.749, 0.749, 0.000, 0.000, 1.000, 0.000, 0.000,
+        0.000, 1.000, 0.667, 0.000, 1.000, 0.333, 0.333, 0.000, 0.333, 0.667,
+        0.000, 0.333, 1.000, 0.000, 0.667, 0.333, 0.000, 0.667, 0.667, 0.000,
+        0.667, 1.000, 0.000, 1.000, 0.333, 0.000, 1.000, 0.667, 0.000, 1.000,
+        1.000, 0.000, 0.000, 0.333, 0.500, 0.000, 0.667, 0.500, 0.000, 1.000,
+        0.500, 0.333, 0.000, 0.500, 0.333, 0.333, 0.500, 0.333, 0.667, 0.500,
+        0.333, 1.000, 0.500, 0.667, 0.000, 0.500, 0.667, 0.333, 0.500, 0.667,
+        0.667, 0.500, 0.667, 1.000, 0.500, 1.000, 0.000, 0.500, 1.000, 0.333,
+        0.500, 1.000, 0.667, 0.500, 1.000, 1.000, 0.500, 0.000, 0.333, 1.000,
+        0.000, 0.667, 1.000, 0.000, 1.000, 1.000, 0.333, 0.000, 1.000, 0.333,
+        0.333, 1.000, 0.333, 0.667, 1.000, 0.333, 1.000, 1.000, 0.667, 0.000,
+        1.000, 0.667, 0.333, 1.000, 0.667, 0.667, 1.000, 0.667, 1.000, 1.000,
+        1.000, 0.000, 1.000, 1.000, 0.333, 1.000, 1.000, 0.667, 1.000, 0.167,
+        0.000, 0.000, 0.333, 0.000, 0.000, 0.500, 0.000, 0.000, 0.667, 0.000,
+        0.000, 0.833, 0.000, 0.000, 1.000, 0.000, 0.000, 0.000, 0.167, 0.000,
+        0.000, 0.333, 0.000, 0.000, 0.500, 0.000, 0.000, 0.667, 0.000, 0.000,
+        0.833, 0.000, 0.000, 1.000, 0.000, 0.000, 0.000, 0.167, 0.000, 0.000,
+        0.333, 0.000, 0.000, 0.500, 0.000, 0.000, 0.667, 0.000, 0.000, 0.833,
+        0.000, 0.000, 1.000, 0.000, 0.000, 0.000, 0.143, 0.143, 0.143, 0.286,
+        0.286, 0.286, 0.429, 0.429, 0.429, 0.571, 0.571, 0.571, 0.714, 0.714,
+        0.714, 0.857, 0.857, 0.857, 1.000, 1.000, 1.000
+    ]).astype(np.float32)
+    color_list = color_list.reshape((-1, 3)) * 255
+    if not rgb:
+        color_list = color_list[:, ::-1]
+    return color_list
 
 # Paddle-TRT Precision Map
 trt_precision_map = {
@@ -143,9 +166,10 @@ class ImageReader:
                     im, eval_crop_size, fx=0, fy=0, interpolation=cv2.INTER_LINEAR)
         else:
             scale_ratio = self.scaling(ori_h, ori_w, self.config.target_short_size, self.config.resize_max_size)
-            im = cv2.resize(im, None,fx=scale_ratio, fy=scale_ratio, interpolaion=cv2.INTER_LINEAR)    
+            im = cv2.resize(im, None,fx=scale_ratio, fy=scale_ratio, interpolation=cv2.INTER_LINEAR)    
 
         # if use models with no pre-processing/post-processing op optimizations
+        new_h, new_w = im.shape[1], im.shape[0]
         if not use_pr:
             im_mean = np.array(self.config.mean).reshape((3, 1, 1))
             im_std = np.array(self.config.std).reshape((3, 1, 1))
@@ -156,7 +180,7 @@ class ImageReader:
             im -= im_mean
             im /= im_std
         im = im[np.newaxis, :, :, :]
-        info = [image_path, im, (ori_w, ori_h)]
+        info = [image_path, im, [ori_h, ori_w], [new_h, new_w], scale_ratio]
         return info
 
     # process multiple images with multithreading
@@ -214,7 +238,7 @@ class Predictor:
             predictor_config.enable_memory_optim()
         self.predictor = fluid.core.create_paddle_predictor(predictor_config)
 
-    def create_tensor(self, inputs, batch_size, use_pr=False):
+    def create_data_tensor(self, inputs, batch_size, use_pr=False):
         im_tensor = fluid.core.PaddleTensor()
         im_tensor.name = "image"
         if not use_pr:
@@ -229,44 +253,79 @@ class Predictor:
             ]
         im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
         im_tensor.data = fluid.core.PaddleBuf(inputs.ravel().astype("float32"))
-        return [im_tensor]
+        return im_tensor
+
+    def create_size_tensor(self, inputs, batch_size, feeds_size):
+        im_tensor = fluid.core.PaddleTensor()
+        im_tensor.name = "im_shape"
+        im_tensor.shape = [batch_size, feeds_size]
+        if feeds_size == 2:
+            im_tensor.dtype = fluid.core.PaddleDType.INT32
+            im_tensor.data = fluid.core.PaddleBuf(inputs.astype("int32"))
+        else:
+            im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
+            im_tensor.data = fluid.core.PaddleBuf(inputs.astype("float32"))
+        return im_tensor
+
+    def create_info_tensor(self, inputs, batch_size):
+        im_tensor = fluid.core.PaddleTensor()
+        im_tensor.name = "im_info"
+        im_tensor.shape = [batch_size, 3]
+        im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
+        im_tensor.data = fluid.core.PaddleBuf(inputs.astype("float32"))
+        return im_tensor
 
     # save prediction results and visualization them
-    def output_result(self, imgs_data, infer_out, use_pr=False):
-        for idx in range(len(imgs_data)):
-            img_name = imgs_data[idx][0]
-            ori_shape = imgs_data[idx][2]
-            mask = infer_out[idx]
-            if not use_pr:
-                mask = np.argmax(mask, axis=0)
-            mask = mask.astype('uint8')
-            mask_png = mask
-            score_png = mask_png[:, :, np.newaxis]
-            score_png = np.concatenate([score_png] * 3, axis=2)
-            # visualization score png
-            color_map = generate_colormap(self.config.class_num)
-            for i in range(score_png.shape[0]):
-                for j in range(score_png.shape[1]):
-                    score_png[i, j] = color_map[score_png[i, j, 0]]
-            # save the mask
-            # mask of xxx.jpeg will be saved as xxx_jpeg_mask.png
-            ext_pos = img_name.rfind(".")
-            img_name_fix = img_name[:ext_pos] + "_" + img_name[ext_pos + 1:]
-            mask_save_name = img_name_fix + "_mask.png"
-            cv2.imwrite(mask_save_name, mask_png, [cv2.CV_8UC1])
-            # save the visualized result
-            # result of xxx.jpeg will be saved as xxx_jpeg_result.png
-            vis_result_name = img_name_fix + "_result.png"
-            result_png = score_png
-            # if not use_pr:
-            result_png = cv2.resize(
-                result_png,
-                ori_shape,
-                fx=0,
-                fy=0,
-                interpolation=cv2.INTER_CUBIC)
-            cv2.imwrite(vis_result_name, result_png, [cv2.CV_8UC1])
-            print("save result of [" + img_name + "] done.")
+    def output_result(self, imgs_data, infer_out):
+        color_list = colormap(rgb=True)
+        text_thickness = 1
+        text_scale = 0.3
+        batch_boxes = infer_out.as_ndarray()
+        lod = infer_out.lod[0]
+        with open(Flags.c2l_path, "r", encoding="utf-8") as json_f:
+            class2LabelMap = json.load(json_f)
+            for idx in range(len(lod)-1):
+                boxes = batch_boxes[lod[idx]:lod[idx+1],:]
+                img_name = imgs_data[idx][0]
+                ori_shape = imgs_data[idx][2]
+                img = cv2.imread(img_name)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                for box in boxes:
+                    box_class = int(box[0])
+                    box_score = box[1]
+                    if box[1] >= Flags.threshold:
+                        left_top_x, left_top_y, right_bottom_x, right_bottom_y = box[2:]
+                        text_class_score_str = "%s %.2f" % (class2LabelMap.get(
+                                str(box_class)),box_score)
+                        text_point = (int(left_top_x), int(left_top_y))
+                        ptLeftTop = (int(left_top_x), int(left_top_y))
+                        ptRightBottom = (int(right_bottom_x),
+                                         int(right_bottom_y))
+                        box_thickness = 1
+                        color = tuple([int(c) for c in color_list[box_class]])
+                        cv2.rectangle(img, ptLeftTop, ptRightBottom, color,
+                                      box_thickness, 8)
+                        if text_point[1] < 0:
+                            text_point = (int(left_top_x),
+                                          int(right_bottom_y))
+                        WHITE = (255, 255, 255)
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        text_size = cv2.getTextSize(text_class_score_str, font,
+                                                    text_scale, text_thickness)
+
+                        text_box_left_top = (text_point[0],
+                                             text_point[1] - text_size[0][1])
+                        text_box_right_bottom = (text_point[0] +
+                                                 text_size[0][0], text_point[1])
+
+                        cv2.rectangle(img, text_box_left_top,
+                                      text_box_right_bottom, color, -1, 8)
+                        cv2.putText(img, text_class_score_str, text_point, font,
+                                    text_scale, WHITE, text_thickness) 
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(img_name+'_result.jpg', img)                
+                # visualization score png
+                print("save result of [" + img_name + "] done.")
 
     def predict(self, images):
         # image reader preprocessing time cost
@@ -280,6 +339,7 @@ class Predictor:
 
         # record starting time point
         total_start = time.time()
+        feeds_size = self.config.feeds_size
         batch_size = self.config.batch_size
         for i in range(0, len(images), batch_size):
             real_batch_size = batch_size
@@ -289,21 +349,29 @@ class Predictor:
             img_datas = self.image_reader.process(images[i:i + real_batch_size],
                                                   gflags.FLAGS.use_pr)
             ## todo
-            
+            feeds = []
             input_data = np.concatenate([item[1] for item in img_datas])
-            print('#'*10)
-            print(input_data.shape)
-            input_data = self.create_tensor(
+            input_data = self.create_data_tensor(
                 input_data, real_batch_size, use_pr=gflags.FLAGS.use_pr)
+            feeds.append(input_data)
+            if feeds_size == 2:
+                input_size = np.concatenate([item[2] for item in img_datas])
+                input_size = self.create_size_tensor(input_size, real_batch_size, feeds_size)
+                feeds.append(input_size)
+            if feeds_size == 3:
+                input_size = np.concatenate([[item[2][0], item[2][1], 1.0] for item in img_datas])
+                input_size = self.create_size_tensor(input_size, real_batch_size, feeds_size)
+                feeds.append(input_size)
+                input_info = np.concatenate([[item[3][0],item[3][1],item[4]] for item in img_datas])
+                input_info = self.create_info_tensor(input_info, real_batch_size)
+                feeds.append(input_info)
             reader_end = time.time()
             infer_start = time.time()
-            print("begin run")
-            output_data = self.predictor.run(input_data)
+            output_data = self.predictor.run(feeds)[0]
+            print(output_data.lod)       
             infer_end = time.time()
-            print("end run")
-#            output_data = output_data.as_ndarray()
             post_start = time.time()
-#            self.output_result(img_datas, output_data, gflags.FLAGS.use_pr)
+            self.output_result(img_datas, output_data)
             post_end = time.time()
             reader_time += (reader_end - reader_start)
             infer_time += (infer_end - infer_start)
