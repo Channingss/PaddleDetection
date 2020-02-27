@@ -30,9 +30,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 gflags.DEFINE_string("conf", default="", help="Configuration File Path")
 gflags.DEFINE_string("input_dir", default="", help="Directory of Input Images")
-gflags.DEFINE_boolean("use_pr", default=True, help="Use optimized model")
 gflags.DEFINE_string("trt_mode", default="", help="Use optimized model")
-gflags.DEFINE_string("ext", default=".jpeg|.jpg", help="Input Image File Extensions")
+gflags.DEFINE_string("ext",
+                     default=".jpeg|.jpg",
+                     help="Input Image File Extensions")
 gflags.DEFINE_float('threshold', 0.0, 'threshold of score')
 gflags.DEFINE_string('c2l_path', 'ghk', 'class to label path')
 Flags = gflags.FLAGS
@@ -73,6 +74,7 @@ def colormap(rgb=False):
     if not rgb:
         color_list = color_list[:, ::-1]
     return color_list
+
 
 # Paddle-TRT Precision Map
 trt_precision_map = {
@@ -138,16 +140,18 @@ class DeployConfig:
                 self.coarsest_stride = deploy_conf["COARSEST_STRIDE"]
             # 14. feeds_size
             self.feeds_size = deploy_conf["FEEDS_SIZE"]
-  
+
+
 class ImageReader:
     def __init__(self, configs):
         self.config = configs
         self.threads_pool = ThreadPoolExecutor(configs.batch_size)
 
     # image processing thread worker
-    def process_worker(self, imgs, idx, use_pr=False):
+    def process_worker(self, imgs, idx):
         image_path = imgs[idx]
         im = cv2.imread(image_path, -1)
+        im = im[:, :, :].astype('float32') / 255.0
         channels = im.shape[2]
         ori_h = im.shape[0]
         ori_w = im.shape[1]
@@ -157,54 +161,85 @@ class ImageReader:
         if channels != 3 and channels != 4:
             print("Only support rgb(gray) or rgba image.")
             return -1
-        scale_ratio = 1
+        scale_ratio = 0
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
         if self.config.resize_type == 'UNPADDING' or gflags.FLAGS.trt_mode == 'trt_mode':
             # resize to eval_crop_size
             eval_crop_size = self.config.eval_crop_size
             if (ori_h != eval_crop_size[0] or ori_w != eval_crop_size[1]):
-                im = cv2.resize(
-                    im, eval_crop_size, fx=0, fy=0, interpolation=cv2.INTER_LINEAR)
+                im = cv2.resize(im,
+                                eval_crop_size,
+                                fx=0,
+                                fy=0,
+                                interpolation=cv2.INTER_LINEAR)
         else:
-            scale_ratio = self.scaling(ori_h, ori_w, self.config.target_short_size, self.config.resize_max_size)
-            im = cv2.resize(im, None,fx=scale_ratio, fy=scale_ratio, interpolation=cv2.INTER_LINEAR)    
-
+            scale_ratio = self.scaling(ori_w, ori_h,
+                                       self.config.target_short_size,
+                                       self.config.resize_max_size)
+            im = cv2.resize(im,
+                            None,
+                            fx=scale_ratio,
+                            fy=scale_ratio,
+                            interpolation=cv2.INTER_LINEAR) 
         # if use models with no pre-processing/post-processing op optimizations
-        new_h, new_w = im.shape[1], im.shape[0]
-        if not use_pr:
-            im_mean = np.array(self.config.mean).reshape((3, 1, 1))
-            im_std = np.array(self.config.std).reshape((3, 1, 1))
-            # HWC -> CHW, don't use transpose((2, 0, 1))
-            im = im.swapaxes(1, 2)
-            im = im.swapaxes(0, 1)
-            im = im[:, :, :].astype('float32') / 255.0
-            im -= im_mean
-            im /= im_std
+        new_h, new_w = im.shape[0], im.shape[1]
+        im_mean = np.array(self.config.mean).reshape((3, 1, 1))
+        im_std = np.array(self.config.std).reshape((3, 1, 1))
+        # HWC -> CHW, don't use transpose((2, 0, 1))
+        im = im.swapaxes(1, 2)
+        im = im.swapaxes(0, 1)
+        im -= im_mean
+        im /= im_std
         im = im[np.newaxis, :, :, :]
         info = [image_path, im, [ori_h, ori_w], [new_h, new_w], scale_ratio]
         return info
 
     # process multiple images with multithreading
-    def process(self, imgs, use_pr=False):
-        imgs_data = []
+    def process(self, imgs):
+        img_datas = []
         with ThreadPoolExecutor(max_workers=self.config.batch_size) as exe_pool:
             tasks = [
-                exe_pool.submit(self.process_worker, imgs, idx, use_pr)
+                exe_pool.submit(self.process_worker, imgs, idx)
                 for idx in range(len(imgs))
             ]
         for task in as_completed(tasks):
-            imgs_data.append(task.result())
-        
-        return imgs_data
-    
+            img_datas.append(task.result())
+
+        if self.config.resize_type == 'RANGE_SCALING':
+            img_datas = self.padding(img_datas)
+
+        return img_datas
+
     def scaling(self, w, h, target_size, max_size):
         im_max_size = max(w, h)
         im_min_size = min(w, h)
-        scale_ratio = target_size/im_min_size
+        scale_ratio = target_size / im_min_size
         if max_size > 0:
             if round(scale_ratio * im_max_size) > max_size:
-                scale_ratio = max_size/im_max_size
+                scale_ratio = max_size / im_max_size
         return scale_ratio
-     
+
+    def padding(self, img_infos):
+        max_h = 0
+        max_w = 0
+        for img_info in img_infos:
+            max_h = max(max_h, img_info[3][0])
+            max_w = max(max_w, img_info[3][1])
+#        max_h = int(max_h / coarsest_stride - 1) * coarsest_stride
+#        max_w = int(max_w / coarsest_stride - 1) * coarsest_stride
+        for img_info in img_infos:
+            h = img_info[3][0]
+            w = img_info[3][1]
+            pad_width = ((0, 0), (0, 0), (0, max_h - h), (0, max_w - w))
+            img_info[1] = np.pad(img_info[1],
+                                 pad_width,
+                                 mode='constant',
+                                 constant_values=0)
+            img_info[3][0] = max_h
+            img_info[3][1] = max_w
+        return img_infos
+
+
 class Predictor:
     def __init__(self, conf_file):
         self.config = DeployConfig(conf_file)
@@ -238,19 +273,10 @@ class Predictor:
             predictor_config.enable_memory_optim()
         self.predictor = fluid.core.create_paddle_predictor(predictor_config)
 
-    def create_data_tensor(self, inputs, batch_size, use_pr=False):
+    def create_data_tensor(self, inputs, batch_size, shape):
         im_tensor = fluid.core.PaddleTensor()
         im_tensor.name = "image"
-        if not use_pr:
-            im_tensor.shape = [
-                batch_size, self.config.channels, self.config.eval_crop_size[1],
-                self.config.eval_crop_size[0]
-            ]
-        else:
-            im_tensor.shape = [
-                batch_size, self.config.eval_crop_size[1],
-                self.config.eval_crop_size[0], self.config.channels
-            ]
+        im_tensor.shape = [batch_size, self.config.channels] + shape
         im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
         im_tensor.data = fluid.core.PaddleBuf(inputs.ravel().astype("float32"))
         return im_tensor
@@ -264,7 +290,7 @@ class Predictor:
             im_tensor.data = fluid.core.PaddleBuf(inputs.astype("int32"))
         else:
             im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
-            im_tensor.data = fluid.core.PaddleBuf(inputs.astype("float32"))
+            im_tensor.data = fluid.core.PaddleBuf(inputs.ravel().astype("float32"))
         return im_tensor
 
     def create_info_tensor(self, inputs, batch_size):
@@ -272,7 +298,7 @@ class Predictor:
         im_tensor.name = "im_info"
         im_tensor.shape = [batch_size, 3]
         im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
-        im_tensor.data = fluid.core.PaddleBuf(inputs.astype("float32"))
+        im_tensor.data = fluid.core.PaddleBuf(inputs.ravel().astype("float32"))
         return im_tensor
 
     # save prediction results and visualization them
@@ -284,8 +310,8 @@ class Predictor:
         lod = infer_out.lod[0]
         with open(Flags.c2l_path, "r", encoding="utf-8") as json_f:
             class2LabelMap = json.load(json_f)
-            for idx in range(len(lod)-1):
-                boxes = batch_boxes[lod[idx]:lod[idx+1],:]
+            for idx in range(len(lod) - 1):
+                boxes = batch_boxes[lod[idx]:lod[idx + 1], :]
                 img_name = imgs_data[idx][0]
                 ori_shape = imgs_data[idx][2]
                 img = cv2.imread(img_name)
@@ -294,9 +320,10 @@ class Predictor:
                     box_class = int(box[0])
                     box_score = box[1]
                     if box[1] >= Flags.threshold:
-                        left_top_x, left_top_y, right_bottom_x, right_bottom_y = box[2:]
+                        left_top_x, left_top_y, right_bottom_x, right_bottom_y = box[
+                            2:]
                         text_class_score_str = "%s %.2f" % (class2LabelMap.get(
-                                str(box_class)),box_score)
+                            str(box_class)), box_score)
                         text_point = (int(left_top_x), int(left_top_y))
                         ptLeftTop = (int(left_top_x), int(left_top_y))
                         ptRightBottom = (int(right_bottom_x),
@@ -306,8 +333,7 @@ class Predictor:
                         cv2.rectangle(img, ptLeftTop, ptRightBottom, color,
                                       box_thickness, 8)
                         if text_point[1] < 0:
-                            text_point = (int(left_top_x),
-                                          int(right_bottom_y))
+                            text_point = (int(left_top_x), int(right_bottom_y))
                         WHITE = (255, 255, 255)
                         font = cv2.FONT_HERSHEY_SIMPLEX
                         text_size = cv2.getTextSize(text_class_score_str, font,
@@ -321,9 +347,9 @@ class Predictor:
                         cv2.rectangle(img, text_box_left_top,
                                       text_box_right_bottom, color, -1, 8)
                         cv2.putText(img, text_class_score_str, text_point, font,
-                                    text_scale, WHITE, text_thickness) 
+                                    text_scale, WHITE, text_thickness)
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(img_name+'_result.jpg', img)                
+                cv2.imwrite(img_name + '_result.jpg', img)
                 # visualization score png
                 print("save result of [" + img_name + "] done.")
 
@@ -346,33 +372,38 @@ class Predictor:
             if i + batch_size >= len(images):
                 real_batch_size = len(images) - i
             reader_start = time.time()
-            img_datas = self.image_reader.process(images[i:i + real_batch_size],
-                                                  gflags.FLAGS.use_pr)
-            ## todo
+            img_datas = self.image_reader.process(images[i:i + real_batch_size])
             feeds = []
             input_data = np.concatenate([item[1] for item in img_datas])
-            input_data = self.create_data_tensor(
-                input_data, real_batch_size, use_pr=gflags.FLAGS.use_pr)
+            input_data = self.create_data_tensor(input_data, real_batch_size, img_datas[0][3])
             feeds.append(input_data)
             if feeds_size == 2:
                 input_size = np.concatenate([item[2] for item in img_datas])
-                input_size = self.create_size_tensor(input_size, real_batch_size, feeds_size)
+                input_size = self.create_size_tensor(input_size,
+                                                     real_batch_size,
+                                                     feeds_size)
                 feeds.append(input_size)
             if feeds_size == 3:
-                input_size = np.concatenate([[item[2][0], item[2][1], 1.0] for item in img_datas])
-                input_size = self.create_size_tensor(input_size, real_batch_size, feeds_size)
+                input_size = np.concatenate([[item[2][0], item[2][1], 1.0]
+                                             for item in img_datas])
+                input_size = self.create_size_tensor(input_size,
+                                                     real_batch_size,
+                                                     feeds_size)
                 feeds.append(input_size)
-                input_info = np.concatenate([[item[3][0],item[3][1],item[4]] for item in img_datas])
-                input_info = self.create_info_tensor(input_info, real_batch_size)
+                input_info = np.concatenate([[item[3][0], item[3][1], item[4]]
+                                             for item in img_datas])
+                input_info = self.create_info_tensor(input_info,
+                                                     real_batch_size)
                 feeds.append(input_info)
+
             reader_end = time.time()
             infer_start = time.time()
             output_data = self.predictor.run(feeds)[0]
-            print(output_data.lod)       
             infer_end = time.time()
             post_start = time.time()
             self.output_result(img_datas, output_data)
             post_end = time.time()
+
             reader_time += (reader_end - reader_start)
             infer_time += (infer_end - infer_start)
             post_time += (post_end - post_start)
@@ -410,8 +441,8 @@ if __name__ == "__main__":
     # set empty to turn off as default
     trt_mode = gflags.FLAGS.trt_mode
     if (trt_mode != "" and trt_mode not in trt_precision_map):
-        print(
-            "Invalid trt_mode [%s], only support[int8, fp16, fp32]" % trt_mode)
+        print("Invalid trt_mode [%s], only support[int8, fp16, fp32]" %
+              trt_mode)
         exit(-1)
     # run inference
     run(gflags.FLAGS.conf, gflags.FLAGS.input_dir, gflags.FLAGS.ext)
