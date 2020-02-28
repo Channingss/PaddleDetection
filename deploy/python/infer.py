@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import argparse
 
-
+# TODO: replace parse args with argparse
 def parse_args():
     parser = argparse.ArgumentParser('detection deployment.')
     parser.add_argument('--conf',
@@ -54,7 +54,6 @@ gflags.DEFINE_string("ext",
 gflags.DEFINE_float('threshold', 0.0, 'threshold of score')
 gflags.DEFINE_string('c2l_path', 'ghk', 'class to label path')
 Flags = gflags.FLAGS
-
 
 # Generate ColorMap for visualization
 def colormap(rgb=False):
@@ -160,12 +159,12 @@ class DeployConfig:
                     raise Exception(
                         'expect target_short_size and resize_max_sizex > coarsest_stride'
                     )
-                self.resize_max_size = int(
+                self.resize_max_size = (
                     self.resize_max_size /
-                    self.coarsest_stride) * self.coarsest_stride
-                self.target_short_size = int(
+                    self.coarsest_stride - 1) * self.coarsest_stride
+                self.target_short_size = (
                     self.target_short_size /
-                    self.coarsest_stride) * self.coarsest_stride
+                    self.coarsest_stride - 1 ) * self.coarsest_stride
             # 14. feeds_size
             self.feeds_size = deploy_conf["FEEDS_SIZE"]
 
@@ -175,23 +174,23 @@ class ImageReader:
         self.config = configs
         self.threads_pool = ThreadPoolExecutor(configs.batch_size)
 
+    def decode_image(self, im_path):
+        with open(im_path, 'rb') as f:
+            im = f.read()
+        data = np.frombuffer(im, dtype='uint8')
+        im = cv2.imdecode(data, 1)  # BGR mode, but need RGB mode
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        return im
+
     # image processing thread worker
     def process_worker(self, imgs, idx):
         image_path = imgs[idx]
-        im = cv2.imread(image_path, -1)
-        im = im[:, :, :].astype('float32') / 255.0
-        channels = im.shape[2]
+        im = self.decode_image(image_path)
         ori_h = im.shape[0]
         ori_w = im.shape[1]
-        if channels == 1:
-            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
-            channels = im.shape[2]
-        if channels != 3 and channels != 4:
-            print("Only support rgb(gray) or rgba image.")
-            return -1
         scale_ratio = 0
-        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-        if self.config.resize_type == 'UNPADDING' or gflags.FLAGS.trt_mode == 'trt_mode':
+        #if self.config.resize_type == 'UNPADDING' or gflags.FLAGS.trt_mode == 'trt_mode':
+        if self.config.resize_type == 'UNPADDING':
             # resize to eval_crop_size
             eval_crop_size = self.config.eval_crop_size
             if (ori_h != eval_crop_size[0] or ori_w != eval_crop_size[1]):
@@ -199,7 +198,12 @@ class ImageReader:
                                 eval_crop_size,
                                 fx=0,
                                 fy=0,
-                                interpolation=cv2.INTER_LINEAR)
+                                interpolation=cv2.INTER_AREA)
+#                im = cv2.resize(im,
+#                                eval_crop_size,
+#                                fx=0,
+#                                fy=0,
+#                                interpolation=cv2.INTER_LINEAR)
         else:
             scale_ratio = self.scaling(ori_w, ori_h,
                                        self.config.target_short_size,
@@ -216,6 +220,7 @@ class ImageReader:
         # HWC -> CHW, don't use transpose((2, 0, 1))
         im = im.swapaxes(1, 2)
         im = im.swapaxes(0, 1)
+        im = im[:, :, :].astype('float32') / 255.0
         im -= im_mean
         im /= im_std
         im = im[np.newaxis, :, :, :]
@@ -298,7 +303,7 @@ class Predictor:
             predictor_config.switch_specify_input_names(True)
             predictor_config.enable_memory_optim()
         self.predictor = fluid.core.create_paddle_predictor(predictor_config)
-
+    
     def create_data_tensor(self, inputs, batch_size, shape):
         im_tensor = fluid.core.PaddleTensor()
         im_tensor.name = "image"
@@ -312,6 +317,7 @@ class Predictor:
         im_tensor.name = "im_shape"
         im_tensor.shape = [batch_size, feeds_size]
         if feeds_size == 2:
+            im_tensor.name = "im_size"
             im_tensor.dtype = fluid.core.PaddleDType.INT32
             im_tensor.data = fluid.core.PaddleBuf(inputs.astype("int32"))
         else:
@@ -376,7 +382,7 @@ class Predictor:
                         cv2.putText(img, text_class_score_str, text_point, font,
                                     text_scale, WHITE, text_thickness)
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                #cv2.imwrite(img_name + '_result.jpg', img)
+                cv2.imwrite(img_name + '_result.jpg', img)
                 # visualization score png
                 print("save result of [" + img_name + "] done.")
 
@@ -404,6 +410,7 @@ class Predictor:
             input_data = np.concatenate([item[1] for item in img_datas])
             input_data = self.create_data_tensor(input_data, real_batch_size,
                                                  img_datas[0][3])
+            print(img_datas)
             feeds.append(input_data)
             if feeds_size == 2:
                 input_size = np.concatenate([item[2] for item in img_datas])
@@ -427,11 +434,11 @@ class Predictor:
             reader_end = time.time()
             infer_start = time.time()
             output_data = self.predictor.run(feeds)[0]
+            print(output_data.as_ndarray())
             infer_end = time.time()
             post_start = time.time()
             self.output_result(img_datas, output_data)
             post_end = time.time()
-
             reader_time += (reader_end - reader_start)
             infer_time += (infer_end - infer_start)
             post_time += (post_end - post_start)
