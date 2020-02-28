@@ -28,6 +28,23 @@ import paddle.fluid as fluid
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import argparse
+
+
+def parse_args():
+    parser = argparse.ArgumentParser('detection deployment.')
+    parser.add_argument('--conf',
+                        type=str,
+                        default='',
+                        help='path of conf.yaml.')
+    parser.add_argument('--input_dir',
+                        type=str,
+                        default='',
+                        help='path of images')
+    args = parser.parse_args()
+    return args
+
+
 gflags.DEFINE_string("conf", default="", help="Configuration File Path")
 gflags.DEFINE_string("input_dir", default="", help="Directory of Input Images")
 gflags.DEFINE_string("trt_mode", default="", help="Use optimized model")
@@ -138,6 +155,17 @@ class DeployConfig:
             # 13. coarsest_stride
             if "COARSEST_STRIDE" in deploy_conf:
                 self.coarsest_stride = deploy_conf["COARSEST_STRIDE"]
+                if (self.resize_max_size < self.coarsest_stride
+                        or self.target_short_size < self.coarsest_stride):
+                    raise Exception(
+                        'expect target_short_size and resize_max_sizex > coarsest_stride'
+                    )
+                self.resize_max_size = int(
+                    self.resize_max_size /
+                    self.coarsest_stride) * self.coarsest_stride
+                self.target_short_size = int(
+                    self.target_short_size /
+                    self.coarsest_stride) * self.coarsest_stride
             # 14. feeds_size
             self.feeds_size = deploy_conf["FEEDS_SIZE"]
 
@@ -180,7 +208,7 @@ class ImageReader:
                             None,
                             fx=scale_ratio,
                             fy=scale_ratio,
-                            interpolation=cv2.INTER_LINEAR) 
+                            interpolation=cv2.INTER_LINEAR)
         # if use models with no pre-processing/post-processing op optimizations
         new_h, new_w = im.shape[0], im.shape[1]
         im_mean = np.array(self.config.mean).reshape((3, 1, 1))
@@ -225,8 +253,6 @@ class ImageReader:
         for img_info in img_infos:
             max_h = max(max_h, img_info[3][0])
             max_w = max(max_w, img_info[3][1])
-#        max_h = int(max_h / coarsest_stride - 1) * coarsest_stride
-#        max_w = int(max_w / coarsest_stride - 1) * coarsest_stride
         for img_info in img_infos:
             h = img_info[3][0]
             w = img_info[3][1]
@@ -290,7 +316,8 @@ class Predictor:
             im_tensor.data = fluid.core.PaddleBuf(inputs.astype("int32"))
         else:
             im_tensor.dtype = fluid.core.PaddleDType.FLOAT32
-            im_tensor.data = fluid.core.PaddleBuf(inputs.ravel().astype("float32"))
+            im_tensor.data = fluid.core.PaddleBuf(
+                inputs.ravel().astype("float32"))
         return im_tensor
 
     def create_info_tensor(self, inputs, batch_size):
@@ -349,7 +376,7 @@ class Predictor:
                         cv2.putText(img, text_class_score_str, text_point, font,
                                     text_scale, WHITE, text_thickness)
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(img_name + '_result.jpg', img)
+                #cv2.imwrite(img_name + '_result.jpg', img)
                 # visualization score png
                 print("save result of [" + img_name + "] done.")
 
@@ -375,7 +402,8 @@ class Predictor:
             img_datas = self.image_reader.process(images[i:i + real_batch_size])
             feeds = []
             input_data = np.concatenate([item[1] for item in img_datas])
-            input_data = self.create_data_tensor(input_data, real_batch_size, img_datas[0][3])
+            input_data = self.create_data_tensor(input_data, real_batch_size,
+                                                 img_datas[0][3])
             feeds.append(input_data)
             if feeds_size == 2:
                 input_size = np.concatenate([item[2] for item in img_datas])
@@ -434,6 +462,7 @@ def run(deploy_conf, imgs_dir, support_extensions=".jpg|.jpeg"):
 if __name__ == "__main__":
     # 0. parse the arguments
     gflags.FLAGS(sys.argv)
+
     if (gflags.FLAGS.conf == "" or gflags.FLAGS.input_dir == ""):
         print("Usage: python infer.py --conf=/config/path/to/your/model " +
               "--input_dir=/directory/of/your/input/images")
