@@ -22,10 +22,13 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
-
+#include "utils/yml_parse.h"
+#include "preprocess/preprocess_ops.h"
 #include "paddle_inference_api.h" // NOLINT
 
 
+using namespace std;
+namespace PaddleDetection {
 // Object Detection Result
 struct ObjectResult {
   // Rectangle coordinates of detected object: left, right, top, down
@@ -58,11 +61,12 @@ void VisualizeResult(const cv::Mat& img,
 class ObjectDetector {
  public:
   explicit ObjectDetector(const std::string& model_dir,
-                          const ModelConfig& config,
+                          const utils::ConfigPaser& config,
                           bool use_gpu = false,
                           float threshold = 0.7) :
       threshold_(threshold) {
     config_ = config;
+    preprocess::ParsePreprocessInfo(config_.preprocess_info, &preprocess_ops);
     LoadModel(model_dir, use_gpu);
   }
 
@@ -74,22 +78,23 @@ class ObjectDetector {
   // Run predictor
   void Predict(
       const cv::Mat& img,
-      std::vector<ObjectResult>* result,
-      float shrink);
+      std::vector<ObjectResult>* result);
 
  private:
   // Preprocess image and copy data to input buffer
-  void Preprocess(const cv::Mat& image_mat, float shrink);
+  void Preprocess(const cv::Mat& image_mat);
   // Postprocess result
   void Postprocess(
       const cv::Mat& raw_mat,
-      float shrink,
       std::vector<ObjectResult>* result);
 
   std::unique_ptr<paddle::PaddlePredictor> predictor_;
+  preprocess::PreprocessOps preprocess_ops;
   std::vector<float> input_data_;
   std::vector<float> output_data_;
   std::vector<int> input_shape_;
   float threshold_;
-  ModelConfig config_;
+  utils::ConfigPaser config_;
 };
+
+}  // namespace PaddleDetection

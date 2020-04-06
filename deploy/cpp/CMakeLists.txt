@@ -10,6 +10,13 @@ SET(PADDLE_DIR "" CACHE PATH "Location of libraries")
 SET(OPENCV_DIR "" CACHE PATH "Location of libraries")
 SET(CUDA_LIB "" CACHE PATH "Location of libraries")
 
+include(cmake/yaml-cpp.cmake)
+
+include_directories("${CMAKE_SOURCE_DIR}/")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/ext/yaml-cpp/src/ext-yaml-cpp/include")
+link_directories("${CMAKE_CURRENT_BINARY_DIR}/ext/yaml-cpp/lib")
+link_directories("${CMAKE_CURRENT_BINARY_DIR}")
+
 macro(safe_set_static_flag)
     foreach(flag_var
         CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
@@ -206,8 +213,16 @@ if (NOT WIN32)
     set(DEPS ${DEPS} ${EXTERNAL_LIB} ${OpenCV_LIBS})
 endif()
 
-add_executable(main main.cc object_detector.cc)
-target_link_libraries(main ${DEPS})
+SET(DETECTION_SRCS  preprocess/preprocess_ops.cc object_detector.cc) 
+
+ADD_LIBRARY(libdetection STATIC ${DETECTION_SRCS})
+ADD_DEPENDENCIES(libdetection ext-yaml-cpp)
+target_link_libraries(libdetection ${DEPS})
+
+set(DEPS ${DEPS} yaml-cpp) 
+add_executable(main main.cc )
+ADD_DEPENDENCIES(main ext-yaml-cpp)
+target_link_libraries(main yaml-cpp libdetection)
 
 if (WIN32)
     add_custom_command(TARGET main POST_BUILD
