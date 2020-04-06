@@ -44,8 +44,9 @@ void VisualizeResult(const cv::Mat& img,
 void ObjectDetector::Preprocess(const cv::Mat& image_mat) {
   // Clone the image : keep the original mat for postprocess
   cv::Mat decode_im = image_mat.clone();
-  std::cout << preprocess_ops.resize.target_size << std::endl;
   cv::cvtColor(image_mat, decode_im, cv::COLOR_BGR2RGB);
+  preprocess_ops.resize.Run(decode_im, &decode_im);
+  std::cout << decode_im.cols << ", " << decode_im.rows << std::endl;
 }
 
 void ObjectDetector::Postprocess(

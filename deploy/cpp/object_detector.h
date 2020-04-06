@@ -66,7 +66,7 @@ class ObjectDetector {
                           float threshold = 0.7) :
       threshold_(threshold) {
     config_ = config;
-    preprocess::ParsePreprocessInfo(config_.preprocess_info, &preprocess_ops);
+    preprocess::ParsePreprocessInfo(config_.preprocess_info, config_.arch, &preprocess_ops);
     LoadModel(model_dir, use_gpu);
   }
 

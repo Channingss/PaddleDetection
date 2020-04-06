@@ -38,13 +38,15 @@ class Permute{
 };
 
 class Resize{
+  std::string arch;
   int interp;
   int max_size;
   int target_size;
   bool use_cv2;
   vector<int> image_shape;
   public:
-    void init(int _max_size,int _target_size, int _interp, bool _use_cv2, vector<int> _image_shape){
+    void init(std::string _arch, int _max_size,int _target_size, int _interp, bool _use_cv2, vector<int> _image_shape){
+      arch = _arch;
       interp = _interp;
       max_size = _max_size;
       target_size = _target_size;
@@ -52,7 +54,7 @@ class Resize{
       image_shape = _image_shape;
     }
     void Run(const cv::Mat& im, cv::Mat* resize_im);
-    vector<float> GenerateScale(const cv::Mat& im);
+    void GenerateScale(const cv::Mat& im, float* im_scale_x, float* im_scale_y);
 
 };
 
@@ -61,7 +63,6 @@ struct PreprocessOps{
   Permute permute;
   Normalize normalize;
 };
-
-void ParsePreprocessInfo(const YAML::Node& node, PreprocessOps* preprocess_ops);
+void ParsePreprocessInfo(const YAML::Node& node, std::string arch, PreprocessOps* preprocess_ops); 
 }  // namespace preprocess
 }  // namespace PaddleDetection
