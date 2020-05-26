@@ -283,11 +283,10 @@ class Config():
         self.use_python_inference = yml_conf['use_python_inference']
         self.min_subgraph_size = yml_conf['min_subgraph_size']
         self.labels = yml_conf['label_list']
-        if not yml_conf['with_background']:
-            self.labels = self.labels[1:]
         self.mask_resolution = None
         if 'mask_resolution' in yml_conf:
             self.mask_resolution = yml_conf['mask_resolution']
+        self.print_config()
 
     def check_model(self, yml_conf):
         """
@@ -300,6 +299,15 @@ class Config():
         raise ValueError(
             "Unsupported arch: {}, expect SSD, YOLO, RetinaNet, RCNN and Face".
             format(yml_conf['arch']))
+
+    def print_config(self):
+        print('-----------  Model Configuration -----------')
+        print('%s: %s' % ('Model Arch', self.arch))
+        print('%s: %s' % ('Use Padddle Executor', self.use_python_inference))
+        print('%s: ' % ('Transform Order'))
+        for op_info in self.preprocess_infos:
+            print('--%s: %s' % ('transform op', op_info['type']))
+        print('--------------------------------------------')
 
 
 def load_predictor(model_dir,
@@ -349,7 +357,7 @@ def load_predictor(model_dir,
     config.disable_glog_info()
     # enable shared memory
     config.enable_memory_optim()
-    # disable feed, fetch OP，needed by zero_copy_run
+    # disable feed, fetch OP, needed by zero_copy_run
     config.switch_use_feed_fetch_ops(False)
     predictor = fluid.core.create_paddle_predictor(config)
     return predictor
@@ -456,10 +464,10 @@ class Detector():
             image (str/np.ndarray): path of image/ np.ndarray read by cv2
             threshold (float): threshold of predicted box' score
         Returns:
-            results (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box，
+            results (dict): include 'boxes': np.ndarray: shape:[N,6], N: number of box,
                             matix element:[class, score, x_min, y_min, x_max, y_max]
-                            MaskRCNN's results include 'masks': np.ndarray: 
-                            shape:[N, class_num, mask_resolution, mask_resolution]  
+                            MaskRCNN's results include 'masks': np.ndarray:
+                            shape:[N, class_num, mask_resolution, mask_resolution]
         '''
         inputs, im_info = self.preprocess(image)
         np_boxes, np_masks = None, None
@@ -472,6 +480,7 @@ class Detector():
             t2 = time.time()
             ms = (t2 - t1) * 1000.0
             print("Inference: {} ms per batch image".format(ms))
+
             np_boxes = np.array(outs[0])
             if self.config.mask_resolution is not None:
                 np_masks = np.array(outs[1])
@@ -485,6 +494,7 @@ class Detector():
             t2 = time.time()
             ms = (t2 - t1) * 1000.0
             print("Inference: {} ms per batch image".format(ms))
+
             output_names = self.predictor.get_output_names()
             boxes_tensor = self.predictor.get_output_tensor(output_names[0])
             np_boxes = boxes_tensor.copy_to_cpu()
@@ -518,7 +528,7 @@ def predict_video():
     fourcc = cv2.VideoWriter_fourcc(* 'mp4v')
     video_name = os.path.split(FLAGS.video_file)[-1]
     if not os.path.exists(FLAGS.output_dir):
-        os.makedirs(FLAGES.output_dir)
+        os.makedirs(FLAGS.output_dir)
     out_path = os.path.join(FLAGS.output_dir, video_name)
     writer = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
     index = 1
@@ -537,6 +547,13 @@ def predict_video():
         im = np.array(im)
         writer.write(im)
     writer.release()
+
+
+def print_arguments(args):
+    print('-----------  Running Arguments -----------')
+    for arg, value in sorted(vars(args).items()):
+        print('%s: %s' % (arg, value))
+    print('------------------------------------------')
 
 
 if __name__ == '__main__':
@@ -568,6 +585,8 @@ if __name__ == '__main__':
         help="Directory of output visualization files.")
 
     FLAGS = parser.parse_args()
+    print_arguments(FLAGS)
+
     if FLAGS.image_file != '' and FLAGS.video_file != '':
         assert "Cannot predict image and video at the same time"
     if FLAGS.image_file != '':
