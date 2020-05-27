@@ -583,7 +583,6 @@ if __name__ == '__main__':
         type=str,
         default="output",
         help="Directory of output visualization files.")
-
     FLAGS = parser.parse_args()
     print_arguments(FLAGS)
 
