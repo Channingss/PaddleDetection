@@ -45,17 +45,17 @@ def check_gpu(use_gpu):
         pass
 
 
-def check_version():
+def check_version(version='1.7.0'):
     """
     Log error and exit when the installed version of paddlepaddle is
     not satisfied.
     """
-    err = "PaddlePaddle version 1.6 or higher is required, " \
+    err = "PaddlePaddle version {} or higher is required, " \
           "or a suitable develop version is satisfied as well. \n" \
-          "Please make sure the version is good with your code." \
+          "Please make sure the version is good with your code.".format(version)
 
     try:
-        fluid.require_version('1.7.0')
+        fluid.require_version(version)
     except Exception as e:
         logger.error(err)
         sys.exit(1)
@@ -89,7 +89,7 @@ def check_config(cfg):
 
     actual_num_classes = int(cfg.num_classes) - int(
         train_dataset.with_background)
-    logger.info("The 'num_classes'(number of classes) you set is {}, " \
+    logger.debug("The 'num_classes'(number of classes) you set is {}, " \
                 "and 'with_background' in 'dataset' sets {}.\n" \
                 "So please note the actual number of categories is {}."
                 .format(cfg.num_classes, train_dataset.with_background,

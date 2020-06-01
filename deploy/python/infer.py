@@ -334,7 +334,6 @@ def load_predictor(model_dir,
         raise ValueError("TensorRT int8 mode is not supported now, "
                          "please use trt_fp32 or trt_fp16 instead.")
     precision_map = {
-        'trt_int8': fluid.core.AnalysisConfig.Precision.Int8,
         'trt_fp32': fluid.core.AnalysisConfig.Precision.Float32,
         'trt_fp16': fluid.core.AnalysisConfig.Precision.Half
     }
