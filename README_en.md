@@ -60,12 +60,14 @@ Supported Architectures:
 | Cascade Mask-RCNN   |   ✓    |                             ✗ |     ✗      |   ✓   |     ✗     |   ✗    |  ✗      |
 | Libra R-CNN         |   ✗    |                             ✓ |     ✗      |   ✗   |     ✗     |   ✗    |  ✗      |
 | RetinaNet           |   ✓    |                             ✗ |     ✗      |   ✗   |     ✗     |   ✗    |  ✗      |
-| YOLOv3              |   ✓    |                             ✗ |     ✗      |   ✗   |     ✓     |   ✗    |  ✗      |
+| YOLOv3              |   ✓    |                             ✓ |     ✗      |   ✗   |     ✓     |   ✗    |  ✗      |
 | SSD                 |   ✗    |                             ✗ |     ✗      |   ✗   |     ✓     |   ✗    |  ✗      |
 | BlazeFace           |   ✗    |                             ✗ |     ✗      |   ✗   |     ✗     |   ✗    |  ✗      |
 | Faceboxes           |   ✗    |                             ✗ |     ✗      |   ✗   |     ✗     |   ✗    |  ✗      |
 
 <a name="vd">[1]</a> [ResNet-vd](https://arxiv.org/pdf/1812.01187) models offer much improved accuracy with negligible performance cost.
+
+**NOTE:** ✓ for config file and pretrain model provided in [Model Zoo](docs/MODEL_ZOO.md), ✗ for not provided but is supported generally.
 
 More models:
 
@@ -111,11 +113,12 @@ The following is the relationship between COCO mAP and FPS on Tesla V100 of repr
 - [Installation guide](docs/tutorials/INSTALL.md)
 - [Quick start on small dataset](docs/tutorials/QUICK_STARTED.md)
 - [Train/Evaluation/Inference](docs/tutorials/GETTING_STARTED.md)
+- [How to train a custom dataset](docs/tutorials/Custom_DataSet.md)
 - [FAQ](docs/FAQ.md)
 
 ### Advanced Tutorial
 
-- [Guide to preprocess pipeline and custom dataset](docs/advanced_tutorials/READER.md)
+- [Guide to preprocess pipeline and dataset definition](docs/advanced_tutorials/READER.md)
 - [Models technical](docs/advanced_tutorials/MODEL_TECHNICAL.md)
 - [Transfer learning document](docs/advanced_tutorials/TRANSFER_LEARNING.md)
 - [Parameter configuration](docs/advanced_tutorials/config_doc):
@@ -146,6 +149,7 @@ The following is the relationship between COCO mAP and FPS on Tesla V100 of repr
 - [Objects365 2019 Challenge champion model](docs/featured_model/champion_model/CACascadeRCNN.md)
 - [Best single model of Open Images 2019-Object Detction](docs/featured_model/champion_model/OIDV5_BASELINE_MODEL.md)
 - [Practical Server-side detection method](configs/rcnn_enhance/README_en.md): Inference speed on single V100 GPU can reach 20FPS when COCO mAP is 47.8%.
+- [Large-scale practical object detection models](docs/featured_model/LARGE_SCALE_DET_MODEL_en.md): Large-scale practical server-side detection pretrained models with 676 categories are provided for most application scenarios, which can be used not only for direct inference but also finetuning on other datasets.
 
 
 ## License

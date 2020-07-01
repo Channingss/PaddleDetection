@@ -20,20 +20,37 @@
 namespace PaddleDetection {
 
 void Normalize::Run(cv::Mat* im, ImageBlob* data) {
-  double e = 1.0;
-  if (is_scale_) {
-    e /= 255.0;
-  }
-  (*im).convertTo(*im, CV_32FC3, e);
-  for (int h = 0; h < im->rows; h++) {
-    for (int w = 0; w < im->cols; w++) {
-      im->at<cv::Vec3f>(h, w)[0] =
-          (im->at<cv::Vec3f>(h, w)[0] - mean_[0] ) / scale_[0];
-      im->at<cv::Vec3f>(h, w)[1] =
-          (im->at<cv::Vec3f>(h, w)[1] - mean_[1] ) / scale_[1];
-      im->at<cv::Vec3f>(h, w)[2] =
-          (im->at<cv::Vec3f>(h, w)[2] - mean_[2] ) / scale_[2];
+  if (!is_channel_first_){
+    double e = 1.0;
+    if (is_scale_) {
+      e /= 255.0;
     }
+    (*im).convertTo(*im, CV_32FC3, e);
+    for (int h = 0; h < im->rows; h++) {
+      for (int w = 0; w < im->cols; w++) {
+        im->at<cv::Vec3f>(h, w)[0] =
+            (im->at<cv::Vec3f>(h, w)[0] - mean_[0] ) / std_[0];
+        im->at<cv::Vec3f>(h, w)[1] =
+            (im->at<cv::Vec3f>(h, w)[1] - mean_[1] ) / std_[1];
+        im->at<cv::Vec3f>(h, w)[2] =
+            (im->at<cv::Vec3f>(h, w)[2] - mean_[2] ) / std_[2];
+      }
+    }
+  }else{
+   int im_index = 0;
+    double e = 1.0;
+    if (!is_scale_) {
+      e /= 255.0;
+    }
+   #pragma omp parallel for
+   for (int c = 0; c < im->channels(); ++c) {
+     for (int h = 0; h < im->rows; ++h) {
+         for (int w = 0; w < im->cols; ++w) {
+				 data->im_data_[im_index] = ((static_cast<float>(data->im_data_[im_index]) - mean_[c] * e) / std_[c]) / e;
+     			 im_index++;
+             }
+         }
+     } 
   }
 }
 
@@ -43,8 +60,16 @@ void Permute::Run(cv::Mat* im, ImageBlob* data) {
   int rc = im->channels();
   (data->im_data_).resize(rc * rh * rw);
   float* base = (data->im_data_).data();
-  for (int i = 0; i < rc; ++i) {
-    cv::extractChannel(*im, cv::Mat(rh, rw, CV_32FC1, base + i * rh * rw), i);
+  if (to_bgr_){
+    cv::cvtColor(*im, *im,  cv::COLOR_RGB2BGR);
+  }
+  if (channel_first_){
+    if (im->type() == CV_8UC3){
+        (*im).convertTo(*im, CV_32FC3, 1.0/255.0);
+    }
+    for (int i = 0; i < rc; ++i) {
+      cv::extractChannel(*im, cv::Mat(rh, rw, CV_32FC1, base + i * rh * rw), i);
+    }
   }
 }
 
@@ -129,17 +154,20 @@ void PadStride::Run(cv::Mat* im, ImageBlob* data) {
 }
 
 
-// Preprocessor op running order
-const std::vector<std::string> Preprocessor::RUN_ORDER = {
-  "Resize", "Normalize", "PadStride", "Permute"
-};
-
 void Preprocessor::Run(cv::Mat* im, ImageBlob* data) {
   for (const auto& name : RUN_ORDER) {
     if (ops_.find(name) != ops_.end()) {
       ops_[name]->Run(im, data);
+      std::cout <<  name << "**********" << std::endl;
+      for(int i=0; i<10; i++){
+          std::cout << (float)im->data[i] << std::endl;
+        } 
     }
   }
+    std::cout  << "############" << std::endl;
+      for(int i=0; i<100; i++){
+          std::cout << data->im_data_[i] << std::endl;
+        } 
 }
 
 }  // namespace PaddleDetection

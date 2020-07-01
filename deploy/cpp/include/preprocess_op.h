@@ -15,7 +15,7 @@
 #pragma once
 
 #include <yaml-cpp/yaml.h>
-
+#include <iostream>
 #include <vector>
 #include <string>
 #include <utility>
@@ -52,7 +52,7 @@ class Normalize : public PreprocessOp {
  public:
   virtual void Init(const YAML::Node& item, const std::string& arch) {
     mean_ = item["mean"].as<std::vector<float>>();
-    scale_ = item["std"].as<std::vector<float>>();
+    std_ = item["std"].as<std::vector<float>>();
     is_channel_first_ = item["is_channel_first"].as<bool>();
     is_scale_ = item["is_scale"].as<bool>();
   }
@@ -64,14 +64,14 @@ class Normalize : public PreprocessOp {
   bool is_channel_first_;
   bool is_scale_;
   std::vector<float> mean_;
-  std::vector<float> scale_;
+  std::vector<float> std_;
 };
 
 class Permute : public PreprocessOp {
  public:
   virtual void Init(const YAML::Node& item, const std::string& arch) {
       to_bgr_ = item["to_bgr"].as<bool>();
-      is_channel_first_ = item["channel_first"].as<bool>();
+      channel_first_ = item["channel_first"].as<bool>();
   }
 
   virtual void Run(cv::Mat* im, ImageBlob* data);
@@ -79,8 +79,8 @@ class Permute : public PreprocessOp {
  private:
   // RGB to BGR
   bool to_bgr_;
-  // CHW or HWC
-  bool is_channel_first_;
+  // Convert HWC to CHW
+  bool channel_first_;
 };
 
 class Resize : public PreprocessOp {
@@ -125,6 +125,7 @@ class Preprocessor {
     arch_ = arch;
     for (const auto& item : config_node) {
       auto op_name = item["type"].as<std::string>();
+      RUN_ORDER.push_back(op_name);
       ops_[op_name] = CreateOp(op_name);
       ops_[op_name]->Init(item, arch);
     }
@@ -146,7 +147,7 @@ class Preprocessor {
   void Run(cv::Mat* im, ImageBlob* data);
 
  public:
-  static const std::vector<std::string> RUN_ORDER;
+  std::vector<std::string> RUN_ORDER;
 
  private:
   std::string arch_;

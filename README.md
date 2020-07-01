@@ -46,12 +46,14 @@
 | Cascade Mask-RCNN  | ✓      |                             ✗ | ✗          | ✓     | ✗         |  ✗     |  ✗      |
 | Libra R-CNN        | ✗      |                             ✓ | ✗          | ✗     | ✗         |  ✗     |  ✗      |
 | RetinaNet          | ✓      |                             ✗ | ✓          | ✗     | ✗         |  ✗     |  ✗      |
-| YOLOv3             | ✓      |                             ✗ | ✗          | ✗     | ✓         |  ✗     |  ✗      |
+| YOLOv3             | ✓      |                             ✓ | ✗          | ✗     | ✓         |  ✗     |  ✗      |
 | SSD                | ✗      |                             ✗ | ✗          | ✗     | ✓         |  ✗     |  ✗      |
 | BlazeFace          | ✗      |                             ✗ | ✗          | ✗     | ✗         |  ✗     |  ✗      |
 | Faceboxes          | ✗      |                             ✗ | ✗          | ✗     | ✗         |  ✗     |  ✗      |
 
 <a name="vd">[1]</a> [ResNet-vd](https://arxiv.org/pdf/1812.01187) 模型预测速度基本不变的情况下提高了精度。
+
+**说明：** ✓ 为[模型库](docs/MODEL_ZOO_cn.md)中提供了对应配置文件和预训练模型，✗ 为未提供参考配置，但一般都支持。
 
 更多的模型:
 
@@ -97,10 +99,11 @@
 - [安装说明](docs/tutorials/INSTALL_cn.md)
 - [快速开始](docs/tutorials/QUICK_STARTED_cn.md)
 - [训练/评估/预测流程](docs/tutorials/GETTING_STARTED_cn.md)
+- [如何训练自定义数据集](docs/tutorials/Custom_DataSet.md)
 - [常见问题汇总](docs/FAQ.md)
 
 ### 进阶教程
-- [数据预处理及自定义数据集](docs/advanced_tutorials/READER.md)
+- [数据预处理及数据集定义](docs/advanced_tutorials/READER.md)
 - [搭建模型步骤](docs/advanced_tutorials/MODEL_TECHNICAL.md)
 - [模型参数配置](docs/advanced_tutorials/config_doc):
   - [配置模块设计和介绍](docs/advanced_tutorials/config_doc/CONFIG_cn.md)
@@ -131,6 +134,7 @@
 - [Objects365 2019 Challenge夺冠模型](docs/featured_model/champion_model/CACascadeRCNN.md)
 - [Open Images 2019-Object Detction比赛最佳单模型](docs/featured_model/champion_model/OIDV5_BASELINE_MODEL.md)
 - [服务器端实用目标检测模型](configs/rcnn_enhance/README.md): V100上速度20FPS时，COCO mAP高达47.8%。
+- [大规模实用目标检测模型](docs/featured_model/LARGE_SCALE_DET_MODEL.md): 提供了包含676个类别的大规模服务器端实用目标检测模型，适用于绝大部分使用场景，可以直接用来预测，也可以用于微调其他任务。
 
 
 ## 许可证书
